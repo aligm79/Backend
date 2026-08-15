@@ -1,0 +1,55 @@
+# Standalone backend stack: API + Postgres + Adminer.
+# `docker compose up -d --build` and you're running.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-dmp_dev}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  adminer:
+    image: adminer:4
+    restart: always
+    ports:
+      - "${ADMINER_PORT:-8080}:8080"
+    depends_on:
+      - db
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-dmp_dev}"
+      DATABASE__AUTO_MIGRATE: "true"
+      BACKEND_PORT: "8000"
+      JWT_SECRET_KEY: "${JWT_SECRET_KEY:-dev-only-change-me-to-a-long-random-secret-at-least-32-bytes}"
+      ADMIN_USERNAME: "${ADMIN_USERNAME:-admin}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-@Admin1234}"
+      UPLOADS_DIR: "/app/uploads"
+      DOCS_ENABLED: "true"
+    volumes:
+      - backend_uploads:/app/uploads
+      # sample-data is baked into this repo; the seeder imports it on first boot.
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+
+volumes:
+  postgres_data:
+  backend_uploads:

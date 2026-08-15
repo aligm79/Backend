@@ -1,0 +1,149 @@
+{
+  "university": {
+    "name": "institute technology mit",
+    "about_university": "independent coeducational university five schools architecture planning engineering humanities arts sciences management science one college computing",
+    "QS World University Rankings": "1",
+    "Undergrad & Postgrad Programmes": "",
+    "International students percentage": "18 1",
+    "Available programmes": {
+      "Bachelor": [],
+      "Master": [],
+      "MBA": [],
+      "PHD": []
+    },
+    "University Information": {
+      "admission": {
+        "General": {
+          "TOEFL": "90 120",
+          "IELTS": "7 +",
+          "CAMBRIDGE CAE ADVANCED": "",
+          "PTE ACADEMIC": "",
+          "INTERNATIONAL BACCALAUREATE": "",
+          "SAT": "1520 +",
+          "GRE": "",
+          "GMAT": "",
+          "GPA": ""
+        },
+        "BACHELOR": {
+          "TOEFL": "90",
+          "IELTS": "7+",
+          "CAMBRIDGE CAE ADVANCED": "",
+          "PTE ACADEMIC": "",
+          "INTERNATIONAL BACCALAUREATE": "",
+          "SAT": "1520+",
+          "GRE": "",
+          "GMAT": "",
+          "GPA": ""
+        },
+        "MASTER": {
+          "TOEFL": "100",
+          "IELTS": "7 +",
+          "CAMBRIDGE CAE ADVANCED": "",
+          "PTE ACADEMIC": "",
+          "INTERNATIONAL BACCALAUREATE": "",
+          "SAT": "",
+          "GRE": "",
+          "GMAT": "135 +",
+          "GPA": ""
+        },
+        "PHD": {
+          "TOEFL": "",
+          "IELTS": "",
+          "CAMBRIDGE CAE ADVANCED": "",
+          "PTE ACADEMIC": "",
+          "INTERNATIONAL BACCALAUREATE": "",
+          "SAT": "",
+          "GRE": "",
+          "GMAT": "",
+          "GPA": ""
+        },
+        "MBA": {
+          "TOEFL": "100",
+          "IELTS": "7+",
+          "CAMBRIDGE CAE ADVANCED": "",
+          "PTE ACADEMIC": "",
+          "INTERNATIONAL BACCALAUREATE": "",
+          "SAT": "",
+          "GRE": "",
+          "GMAT": "135+",
+          "GPA": ""
+        }
+      },
+      "FACILITIES": "12 museums galleries campus 125 000 visitors year",
+      "STUDENT & STAFF": {
+        "total student": {
+          "toal number": "11 694",
+          "UG students percentage": "38 5",
+          "PG students percentage": "61 5"
+        },
+        "International students": {
+          "toal number": "3 808",
+          "UG students percentage": "18 1",
+          "PG students percentage": "81 9"
+        },
+        "total faculty staff": {
+          "toal number": "3 112",
+          "domestic staff percentage": "42",
+          "Int'l staff percentage": "58"
+        },
+        "student life": "33 varsity sports one broadest intercollegiate athletic programs world vibrant arts culture college life 12 museums galleries campus"
+      }
+    },
+    "costs of living": {
+      "accommodation": "16 590",
+      "food": "4 180",
+      "transport": "1 070",
+      "utilities": "2 930"
+    },
+    "tuition fees": {
+      "overall tuition fees": {
+        "domestic starts from": "16 590",
+        "international starts from": ""
+      }
+    },
+    "scholarships": "scholarships lists international scholarships country subject type student",
+    "Employability": {
+      "career services": ""
+    },
+    "Rankings & ratings": {
+      "explanations": "",
+      "QS world university rankings": "1",
+      "QS WUR ranking by subject": "# 43",
+      "QS sustainability ranking": "Highcharts",
+      "Europe University rankings - Northers Europe": "",
+      "data": {
+        "2010": "",
+        "2011": "",
+        "2012": "",
+        "2013": "",
+        "2014": "",
+        "2015": "1",
+        "2016": "1",
+        "2017": "1",
+        "2018": "1",
+        "2019": "1",
+        "2020": "1",
+        "2021": "1",
+        "2022": "1",
+        "2023": "1",
+        "2024": "1",
+        "2025": "1",
+        "2026": "1",
+        "2027": "1"
+      },
+      "Ranking crieteria": {
+        "overall": "",
+        "academic reputation": "100",
+        "citation per faculty": "100",
+        "Employment outcomes": "100",
+        "employer reputation": "100",
+        "faculty sudent ration": "94 4",
+        "Internation faculty ratio": "91 1",
+        "international research network": "100",
+        "international student ratio": "94 4",
+        "sustainability": "93"
+      }
+    },
+    "Campus location": "77 02139"
+  }
+}
