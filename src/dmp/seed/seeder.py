@@ -35,8 +35,25 @@ async def seed_all(session: AsyncSession) -> None:
         await seed_countries(session)
         await seed_plans(session)
         await seed_sample_universities(session)
+        await import_university_data(session)
     except Exception:
         log.exception("[Seed] seeding failed — startup continues.")
+
+
+async def import_university_data(session: AsyncSession) -> None:
+    """Import rows from the restored `university_data` landing table (if any) into
+    the canonical catalog. Merge-fill, idempotent — safe on every boot."""
+    from ..modules.catalog.service import CatalogService
+
+    catalog = CatalogService()
+    summary = await catalog.import_university_data(session)
+    if summary.get("totalRows"):
+        log.info(
+            "[Seed] university_data import: %s created, %s merged, %s skipped.",
+            summary.get("created"),
+            summary.get("merged"),
+            summary.get("skipped"),
+        )
 
 
 async def seed_admin(session: AsyncSession) -> None:

@@ -16,6 +16,7 @@ from ...domain.models import (
     Country,
     University,
     UniversityAdmission,
+    UniversityData,
     UniversityProgram,
     UniversityRanking,
     UniversityStudentStaff,
@@ -332,6 +333,123 @@ class CatalogService:
             )
         return results
 
+    # ── university_data dump import (merge-fill) ────────────────────────────────
+
+    async def import_university_data(self, session: AsyncSession) -> dict:
+        """Import rows from the restored `university_data` landing table into the
+        canonical catalog.
+
+        Merge semantics (safe to re-run and future-dump tolerant):
+        - New universities are created.
+        - Existing ones (matched by slug) are only ENRICHED: scalar fields are
+          filled when empty, children added only when absent, country set only
+          when unmapped. Manual edits are never overwritten.
+        """
+        from . import dump_mapper
+
+        rows = (
+            await session.execute(
+                select(UniversityData).order_by(UniversityData.inserted_at.nulls_last(), UniversityData.id)
+            )
+        ).scalars().all()
+
+        summary = {"created": 0, "merged": 0, "skipped": 0, "totalRows": len(rows)}
+        if not rows:
+            return summary
+
+        type_id = await self._ensure_university_type_id(session)
+        order = (await session.execute(select(func.count(University.id)))).scalar_one()
+
+        for row in rows:
+            payload = dump_mapper.map_dump_payload(row.json_content or {}, row.university_name)
+            if payload is None or not payload.name:
+                summary["skipped"] += 1
+                continue
+
+            name = dump_mapper._normalize_dashes(payload.name)
+            slug = _slugify(name)
+            existing = (
+                await session.execute(
+                    select(University)
+                    .options(
+                        selectinload(University.programs),
+                        selectinload(University.admissions),
+                        selectinload(University.student_staff),
+                        selectinload(University.ranking),
+                    )
+                    .where(University.slug == slug)
+                )
+            ).scalar_one_or_none()
+            created = existing is None
+
+            if created:
+                u = University(
+                    id=new_uuid_hex(),
+                    catalog_item_type_id=type_id,
+                    slug=slug,
+                    name=payload.name.strip(),
+                    sort_order=order,
+                )
+                session.add(u)
+                order += 1
+            else:
+                u = existing
+
+            # Fill-empty merge on scalars.
+            if not u.about and payload.about:
+                u.about = payload.about
+            if not u.qs_world_rank and payload.qs_world_rank:
+                u.qs_world_rank = payload.qs_world_rank
+            if not u.campus_location and payload.campus_location:
+                u.campus_location = payload.campus_location
+            if not u.facilities and payload.facilities:
+                u.facilities = payload.facilities
+            if not u.scholarships and payload.scholarships:
+                u.scholarships = payload.scholarships
+            if not u.career_services and payload.career_services:
+                u.career_services = payload.career_services
+            if not u.tuition_fees and payload.overall_tuition:
+                u.tuition_fees = payload.overall_tuition
+
+            cover, logo = _image_for(payload.name)
+            if u.cover_image_url is None:
+                u.cover_image_url = cover
+            if u.logo_url is None:
+                u.logo_url = logo
+
+            if u.country_id is None and payload.country_name:
+                country_id = await self._resolve_country_id_by_name(session, payload.country_name)
+                if country_id:
+                    u.country_id = country_id
+
+            await session.commit()
+
+            # Children: for existing rows only populate when currently absent
+            # (never clobber). New rows are empty by definition — accessing the
+            # relationship would trigger a lazy load outside the async greenlet.
+            if created:
+                if payload.programs:
+                    await self._replace_programs(session, u.id, payload.programs)
+                if payload.admissions:
+                    await self._replace_admissions(session, u.id, payload.admissions)
+                if payload.student_staff_buckets:
+                    await self._upsert_student_staff(session, u.id, payload.student_staff_buckets, payload.student_life)
+                if payload.ranking:
+                    await self._upsert_ranking(session, u.id, payload.ranking)
+            else:
+                if not u.programs and payload.programs:
+                    await self._replace_programs(session, u.id, payload.programs)
+                if not u.admissions and payload.admissions:
+                    await self._replace_admissions(session, u.id, payload.admissions)
+                if not u.student_staff and payload.student_staff_buckets:
+                    await self._upsert_student_staff(session, u.id, payload.student_staff_buckets, payload.student_life)
+                if not u.ranking and payload.ranking:
+                    await self._upsert_ranking(session, u.id, payload.ranking)
+
+            summary["created" if created else "merged"] += 1
+
+        return summary
+
     # ── Countries ───────────────────────────────────────────────────────────────
 
     async def list_countries(self, session: AsyncSession) -> list[dict]:
@@ -378,6 +496,23 @@ class CatalogService:
             await session.execute(select(Country).where(Country.code == code.upper()))
         ).scalar_one_or_none()
         return c.id if c else None
+
+    async def _resolve_country_id_by_name(self, session: AsyncSession, name: str) -> str | None:
+        """Case-insensitive country lookup by English name (dump payloads carry
+        names like 'United States'; falls back to a prefix match for variants)."""
+        exact = (
+            await session.execute(select(Country).where(func.lower(Country.name) == name.strip().lower()))
+        ).scalar_one_or_none()
+        if exact:
+            return exact.id
+        fuzzy = (
+            await session.execute(
+                select(Country)
+                .where(func.lower(Country.name).like(f"%{name.strip().lower()}%"))
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        return fuzzy.id if fuzzy else None
 
     async def _ensure_unique_slug(
         self, session: AsyncSession, slug: str, self_id: str | None

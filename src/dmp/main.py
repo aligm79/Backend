@@ -34,7 +34,6 @@ from .envelope import (
 )
 from .modules.applications.router import router_admin as apps_admin
 from .modules.applications.router import router_client as apps_client
-from .modules.profile.router import router as profile_router
 from .modules.auth.router import router_admin as auth_admin
 from .modules.auth.router import router_client as auth_client
 from .modules.billing.router import router_admin as billing_admin
@@ -43,6 +42,7 @@ from .modules.billing.router import router_public as billing_public
 from .modules.catalog.router import router_admin as catalog_admin
 from .modules.catalog.router import router_client as catalog_client
 from .modules.catalog.router import router_public as catalog_public
+from .modules.profile.router import router as profile_router
 from .seed.seeder import seed_all
 
 log = logging.getLogger("dmp")

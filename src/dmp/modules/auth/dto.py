@@ -51,6 +51,7 @@ class AdminResponse(BaseModel):
 
 
 class UserRegisterRequest(BaseModel):
+    username: str | None = None
     email: str | None = None
     phoneNumber: str | None = None
     password: str
@@ -59,6 +60,9 @@ class UserRegisterRequest(BaseModel):
 
 
 class UserLoginRequest(BaseModel):
+    # Identifier accepts a username OR an email address. The explicit email /
+    # phoneNumber fields remain for backward compatibility with older clients.
+    identifier: str | None = None
     email: str | None = None
     phoneNumber: str | None = None
     password: str
@@ -79,6 +83,7 @@ class OtpVerifyRequest(BaseModel):
 
 class UserResponse(BaseModel):
     id: str
+    username: str | None = None
     email: str | None = None
     phoneNumber: str | None = None
     firstName: str | None = None

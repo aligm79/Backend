@@ -66,6 +66,8 @@ class UniversityPayload:
     student_staff_buckets: list[StudentStaffBucket] = field(default_factory=list)
     ranking: RankingPayload | None = None
     programs: list[ProgramPayload] = field(default_factory=list)
+    # Country name (used by the university_data dump importer to resolve country_id).
+    country_name: str | None = None
 
 
 def _str(parent: Any, key: str) -> str | None:

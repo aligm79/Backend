@@ -166,19 +166,29 @@ def _admin_to_response(a: Admin) -> AdminResponse:
 # ── User (client) auth ──────────────────────────────────────────────────────────
 
 
+def _normalize_username(value: str | None) -> str | None:
+    """Usernames are stored lowercase (like emails) for case-insensitive lookup."""
+    if value is None:
+        return None
+    v = value.strip().lower()
+    return v or None
+
+
 async def user_register(session: AsyncSession, req: UserRegisterRequest) -> TokenResponse:
     _validate_password(req.password)
     email, phone = _normalize(req.email, req.phoneNumber)
-    if email is None and phone is None:
-        raise AppException.bad_request("Email or phone number is required")
-    await _ensure_unique(session, email, phone)
+    username = _normalize_username(req.username)
+    if username is None and email is None and phone is None:
+        raise AppException.bad_request("Username, email, or phone number is required")
+    await _ensure_unique(session, username, email, phone)
 
     user = User(
         id=new_uuid_hex(),
+        username=username,
         email=email,
         phone_number=phone,
         password_hash=hash_password(req.password),
-        first_name=req.firstName,
+        first_name=req.firstName or username,
         last_name=req.lastName,
         email_verified=False,
         phone_number_verified=False,
@@ -189,15 +199,75 @@ async def user_register(session: AsyncSession, req: UserRegisterRequest) -> Toke
 
 
 async def user_login(session: AsyncSession, req: UserLoginRequest) -> TokenResponse:
+    # The identifier may be a username or an email; explicit email/phone fields
+    # keep older clients working.
+    identifier = _normalize_identifier(req.identifier)
+    username: str | None = None
     email, phone = _normalize(req.email, req.phoneNumber)
-    user = await _find_by_identifier(session, email, phone)
+    if identifier is not None:
+        if "@" in identifier:
+            email = identifier
+        else:
+            username = identifier
+
+    user: User | None = None
+    if username is not None:
+        user = (
+            await session.execute(select(User).where(User.username == username))
+        ).scalar_one_or_none()
     if user is None:
-        raise AppException.unauthorized("Invalid credentials")
-    if user.status == UserStatus.Suspended:
-        raise AppException.forbidden("Account suspended")
-    if not user.password_hash or not verify_password(req.password, user.password_hash):
-        raise AppException.unauthorized("Invalid credentials")
-    return _issue_user(user)
+        user = await _find_by_identifier(session, email, phone)
+
+    if user is not None:
+        if user.status == UserStatus.Suspended:
+            raise AppException.forbidden("Account suspended")
+        if user.password_hash and verify_password(req.password, user.password_hash):
+            return _issue_user(user)
+
+    # Admin-credential fallback: logging in with a staff username + password
+    # provisions/updates a linked app user, so admins can use the dashboard too.
+    admin_user = await _try_admin_login_link(session, username or email, req.password)
+    if admin_user is not None:
+        return _issue_user(admin_user)
+
+    raise AppException.unauthorized("Invalid credentials")
+
+
+async def _try_admin_login_link(
+    session: AsyncSession, identifier: str | None, password: str
+) -> User | None:
+    """If the credentials match an admin account, get-or-create a linked user row
+    (username = the admin's username, password kept in sync with the admin's)."""
+    if not identifier or "@" in identifier:
+        return None
+    admin = (
+        await session.execute(select(Admin).where(Admin.username == identifier))
+    ).scalar_one_or_none()
+    if admin is None or not admin.is_active:
+        return None
+    if not verify_password(password, admin.password_hash):
+        return None
+
+    linked_email = f"{admin.username}@admin.local"
+    user = (
+        await session.execute(select(User).where(User.username == admin.username))
+    ).scalar_one_or_none()
+    if user is None:
+        user = User(
+            id=new_uuid_hex(),
+            username=admin.username.lower(),
+            email=linked_email,
+            password_hash=admin.password_hash,  # synced from the admin on each login
+            first_name=admin.first_name or admin.username,
+            last_name=admin.last_name,
+            email_verified=True,
+        )
+        session.add(user)
+    else:
+        # Keep the linked user's password in sync with the admin's.
+        user.password_hash = admin.password_hash
+    await session.commit()
+    return user
 
 
 async def send_otp(session: AsyncSession, req: OtpSendRequest) -> OtpSendResult:
@@ -326,14 +396,23 @@ async def update_profile(session: AsyncSession, user_id: str, req: UpdateUserReq
 
 
 def _issue_user(user: User) -> TokenResponse:
-    claims = {"email": user.email or "", "phone": user.phone_number or ""}
+    claims = {
+        "username": user.username or "",
+        "email": user.email or "",
+        "phone": user.phone_number or "",
+    }
     access, refresh, refresh_exp = security.issue_pair(user.id, USER_AUDIENCE, claims)
     return TokenResponse(
         id=user.id, accessToken=access, refreshToken=refresh, refreshTokenExpiresAt=refresh_exp, accountType="user"
     )
 
 
-async def _ensure_unique(session: AsyncSession, email: str | None, phone: str | None) -> None:
+async def _ensure_unique(
+    session: AsyncSession, username: str | None, email: str | None, phone: str | None
+) -> None:
+    if username is not None:
+        if (await session.execute(select(User.id).where(User.username == username))).first():
+            raise AppException.conflict("Username is already taken")
     if email is not None:
         if (await session.execute(select(User.id).where(User.email == email))).first():
             raise AppException.conflict("Email already registered")
@@ -359,6 +438,7 @@ def _validate_password(password: str) -> None:
 def _user_to_response(u: User) -> UserResponse:
     return UserResponse(
         id=u.id,
+        username=u.username,
         email=u.email,
         phoneNumber=u.phone_number,
         firstName=u.first_name,

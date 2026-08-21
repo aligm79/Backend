@@ -129,3 +129,13 @@ async def admin_import_json(
     json_text = (await request.body()).decode("utf-8")
     result = await _catalog.import_json(session, json_text, source_name=None, country_code=None)
     return ok(result)
+
+
+@router_admin.post("/import-university-data")
+async def admin_import_university_data(
+    _admin: Admin = Depends(current_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Import rows from the restored `university_data` landing table into the
+    catalog (merge-fill: existing universities are only enriched, never clobbered)."""
+    return ok(await _catalog.import_university_data(session))

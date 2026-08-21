@@ -19,6 +19,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -64,6 +65,7 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True)
+    username: Mapped[str | None] = mapped_column(String(150), unique=True, index=True)
     email: Mapped[str | None] = mapped_column(String(256), unique=True, index=True)
     phone_number: Mapped[str | None] = mapped_column(String(32), unique=True, index=True)
     password_hash: Mapped[str | None] = mapped_column(String(512))
@@ -234,6 +236,27 @@ class Country(Base):
     )
 
 
+class UniversityData(Base):
+    """Raw landing table for restored university dumps (pg_dump of university_data).
+
+    The source of truth for imports: each row is one university variant scraped
+    from a ranking source, with the full semi-structured payload in `json_content`.
+    Kept separate from the canonical `universities` table so future dump schema
+    changes never break the app — only the mapper needs updating.
+    """
+
+    __tablename__ = "university_data"
+
+    id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    university_name: Mapped[str | None] = mapped_column(Text)
+    guid: Mapped[str | None] = mapped_column(Text)
+    json_content: Mapped[dict | None] = mapped_column(JSONB)
+    inserted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class University(Base):
     __tablename__ = "universities"
 
@@ -254,7 +277,7 @@ class University(Base):
     tuition_fees: Mapped[dict | None] = mapped_column(JSONB)
     scholarships: Mapped[str | None] = mapped_column(Text)
     career_services: Mapped[str | None] = mapped_column(Text)
-    campus_location: Mapped[str | None] = mapped_column(String(64))
+    campus_location: Mapped[str | None] = mapped_column(String(256))
     country_id: Mapped[str | None] = mapped_column(
         UUID(as_uuid=False), ForeignKey("countries.id", ondelete="SET NULL"), index=True
     )
