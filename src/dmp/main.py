@@ -32,6 +32,7 @@ from .envelope import (
     unhandled_exception_handler,
     validation_exception_handler,
 )
+from .modules.adminusers.router import router as admin_users_router
 from .modules.applications.router import router_admin as apps_admin
 from .modules.applications.router import router_client as apps_client
 from .modules.auth.router import router_admin as auth_admin
@@ -220,6 +221,7 @@ def create_app() -> FastAPI:
     app.include_router(apps_client)
     app.include_router(apps_admin)
     app.include_router(profile_router)
+    app.include_router(admin_users_router)
 
     # ── Static files: bundled university sample photos ─────────────────────────
     # The frontend ships its own copies; these mount the backend-side assets used

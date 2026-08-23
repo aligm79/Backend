@@ -11,7 +11,13 @@ from ...db import get_session
 from ...deps import current_admin, current_user_id
 from ...domain.models import Admin
 from ...envelope import ok
-from .dto import PlanCreateRequest, PlanUpdateRequest, StartPaymentRequest
+from .dto import (
+    GrantSubscriptionRequest,
+    PlanCreateRequest,
+    PlanUpdateRequest,
+    StartPaymentRequest,
+    SubscriptionStatusUpdateRequest,
+)
 from .service import BillingService
 
 router_admin = APIRouter(prefix="/api/v1/admin", tags=["billing (admin)"])
@@ -77,6 +83,43 @@ async def list_payments(
     session: AsyncSession = Depends(get_session),
 ):
     return ok([p.model_dump(exclude_none=True) for p in await _billing.admin_list_payments(session)])
+
+
+# ── Admin subscriptions (grant / list / status) ─────────────────────────────────
+
+
+@router_admin.get("/subscriptions")
+async def list_subscriptions(
+    status: str | None = None,
+    userId: str | None = None,
+    _admin: Admin = Depends(current_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    subs = await _billing.admin_list_subscriptions(session, status, userId)
+    return ok([s.model_dump(exclude_none=True) for s in subs])
+
+
+@router_admin.post("/subscriptions")
+async def grant_subscription(
+    req: GrantSubscriptionRequest,
+    _admin: Admin = Depends(current_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Grant a subscription to a user (creates an Active subscription + a
+    Succeeded manual payment so the grant is tracked in transactions)."""
+    sub = await _billing.admin_grant_subscription(session, req.userId, req.planId)
+    return ok(sub.model_dump(exclude_none=True))
+
+
+@router_admin.put("/subscriptions/{id}")
+async def update_subscription_status(
+    id: str,
+    req: SubscriptionStatusUpdateRequest,
+    _admin: Admin = Depends(current_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    sub = await _billing.admin_update_subscription_status(session, id, req.status)
+    return ok(sub.model_dump(exclude_none=True))
 
 
 # ── Client ──────────────────────────────────────────────────────────────────────

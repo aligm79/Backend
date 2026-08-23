@@ -51,6 +51,37 @@ def _slugify(value: str) -> str:
     return slug or "item"
 
 
+_DUMP_SHAPE_KEYS = ("university_identity", "rankings", "programmes", "university_statistics")
+
+
+def _parse_any_json(json_text: str) -> list:
+    """Parse a bulk-import document in EITHER supported shape:
+    - the legacy sample shape ({ "university": {...} } / bare {...} / arrays), or
+    - the university_data dump shape (sections like rankings/programmes/...).
+    Each element is mapped onto the canonical UniversityPayload."""
+    import json as _json
+
+    from . import dump_mapper
+
+    root = _json.loads(json_text)
+    elements = root if isinstance(root, list) else [root]
+    out = []
+    for el in elements:
+        if not isinstance(el, dict):
+            continue
+        target = el["university"] if isinstance(el.get("university"), dict) else el
+        if any(k in target for k in _DUMP_SHAPE_KEYS):
+            p = dump_mapper.map_dump_payload(target, None)
+            if p is not None:
+                # Normalize unicode dashes so source variants slug consistently
+                # with the university_data importer.
+                p.name = dump_mapper._normalize_dashes(p.name)
+                out.append(p)
+        else:
+            out.append(mapper._parse_one(el))
+    return out
+
+
 def _teaser(text: str) -> str:
     if not text:
         return ""
@@ -267,7 +298,7 @@ class CatalogService:
         source_name: str | None = None,
         country_code: str | None = None,
     ) -> list[dict]:
-        payloads = mapper.parse(json_text)
+        payloads = _parse_any_json(json_text)
         results: list[dict] = []
         type_id = await self._ensure_university_type_id(session)
 

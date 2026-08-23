@@ -12,6 +12,7 @@ import logging
 import httpx
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from ...db import utcnow
 from ...domain.enums import PaymentStatus, SubscriptionStatus, UserStatus
@@ -167,8 +168,6 @@ class BillingService:
             return await self._cancel(session, authority)
 
         # Eagerly load subscription (+plan) and plan for activation.
-        from sqlalchemy.orm import selectinload
-
         stmt = (
             select(Payment)
             .options(
@@ -228,8 +227,6 @@ class BillingService:
         return _ok(payment)
 
     async def _cancel(self, session: AsyncSession, authority: str) -> PaymentResultResponse:
-        from sqlalchemy.orm import selectinload
-
         stmt = (
             select(Payment)
             .options(selectinload(Payment.subscription))
@@ -248,11 +245,9 @@ class BillingService:
     # ── History / admin views ───────────────────────────────────────────────────
 
     async def list_my_subscriptions(self, session: AsyncSession, user_id: str) -> list[SubscriptionResponse]:
-        from sqlalchemy.orm import selectinload
-
         stmt = (
             select(Subscription)
-            .options(selectinload(Subscription.plan))
+            .options(selectinload(Subscription.plan), selectinload(Subscription.user))
             .where(Subscription.user_id == user_id)
             .order_by(Subscription.created_at.desc())
         )
@@ -260,7 +255,12 @@ class BillingService:
         return [_to_sub(s) for s in rows]
 
     async def list_my_payments(self, session: AsyncSession, user_id: str) -> list[PaymentResponse]:
-        stmt = select(Payment).where(Payment.user_id == user_id).order_by(Payment.created_at.desc())
+        stmt = (
+            select(Payment)
+            .options(selectinload(Payment.user))
+            .where(Payment.user_id == user_id)
+            .order_by(Payment.created_at.desc())
+        )
         rows = (await session.execute(stmt)).scalars().all()
         return [_to_pay(p) for p in rows]
 
@@ -313,8 +313,6 @@ class BillingService:
         }
 
     async def admin_list_payments(self, session: AsyncSession) -> list[PaymentResponse]:
-        from sqlalchemy.orm import selectinload
-
         stmt = (
             select(Payment)
             .options(selectinload(Payment.user))
@@ -322,6 +320,104 @@ class BillingService:
         )
         rows = (await session.execute(stmt)).scalars().all()
         return [_to_pay(p) for p in rows]
+
+    # ── Admin subscriptions ────────────────────────────────────────────────────
+
+    async def admin_list_subscriptions(
+        self, session: AsyncSession, status: str | None, user_id: str | None
+    ) -> list[SubscriptionResponse]:
+        stmt = select(Subscription).options(
+            selectinload(Subscription.plan), selectinload(Subscription.user)
+        )
+        if status:
+            stmt = stmt.where(Subscription.status == _parse_subscription_status(status))
+        if user_id:
+            stmt = stmt.where(Subscription.user_id == user_id)
+        stmt = stmt.order_by(Subscription.created_at.desc())
+        rows = (await session.execute(stmt)).scalars().all()
+        return [_to_sub(s) for s in rows]
+
+    async def admin_grant_subscription(
+        self, session: AsyncSession, user_id: str, plan_id: str
+    ) -> SubscriptionResponse:
+        """Grant a subscription to a user (admin action): creates an Active
+        subscription for the plan's duration — extending an existing active sub's
+        window like the payment callback does — plus a Succeeded manual Payment
+        row so the grant shows up in the transactions view."""
+        from datetime import timedelta
+
+        plan = await self._get_plan(session, plan_id)
+        user = (
+            await session.execute(select(User).where(User.id == user_id))
+        ).scalar_one_or_none()
+        if user is None:
+            raise AppException.not_found("User not found")
+        if user.status != UserStatus.Active:
+            raise AppException.bad_request("Cannot grant a subscription to a suspended user")
+
+        now = utcnow()
+        # Extend from the end of any currently-active subscription (callback parity).
+        existing_end_stmt = (
+            select(func.max(Subscription.end_at))
+            .where(
+                Subscription.user_id == user_id,
+                Subscription.status == SubscriptionStatus.Active,
+                Subscription.end_at > now,
+            )
+        )
+        start = (await session.execute(existing_end_stmt)).scalar_one_or_none() or now
+
+        subscription = Subscription(
+            id=new_uuid_hex(),
+            user_id=user_id,
+            plan_id=plan.id,
+            start_at=start,
+            end_at=start + timedelta(days=plan.duration_days),
+            status=SubscriptionStatus.Active,
+        )
+        payment = Payment(
+            id=new_uuid_hex(),
+            user_id=user_id,
+            subscription_id=subscription.id,
+            plan_id=plan.id,
+            amount_toman=plan.price_toman,
+            status=PaymentStatus.Succeeded,
+            gateway="manual",
+            description=f"Admin grant: {plan.name_key} ({plan.duration_days} days)",
+            paid_at=now,
+        )
+        session.add(subscription)
+        session.add(payment)
+        await session.commit()
+
+        loaded = (
+            await session.execute(
+                select(Subscription)
+                .options(selectinload(Subscription.plan), selectinload(Subscription.user))
+                .where(Subscription.id == subscription.id)
+            )
+        ).scalar_one()
+        return _to_sub(loaded)
+
+    async def admin_update_subscription_status(
+        self, session: AsyncSession, id_: str, status: str
+    ) -> SubscriptionResponse:
+        new_status = _parse_subscription_status(status)
+        sub = (
+            await session.execute(select(Subscription).where(Subscription.id == id_))
+        ).scalar_one_or_none()
+        if sub is None:
+            raise AppException.not_found("Subscription not found")
+        sub.status = new_status
+        await session.commit()
+        loaded = (
+            await session.execute(
+                select(Subscription)
+                .options(selectinload(Subscription.plan), selectinload(Subscription.user))
+                .where(Subscription.id == id_)
+            )
+        ).scalar_one()
+        return _to_sub(loaded)
 
     # ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -347,6 +443,16 @@ def _enum_name(value) -> str:
     if hasattr(value, "value"):
         return value.value
     return str(value)
+
+
+def _parse_subscription_status(value: str) -> SubscriptionStatus:
+    """Case-insensitive, snake-tolerant status parsing (Active / active /
+    pending_payment / PendingPayment …)."""
+    v = (value or "").strip().lower().replace("_", "")
+    for s in SubscriptionStatus:
+        if s.value.lower() == v:
+            return s
+    raise AppException.validation(f"Invalid status: {value}")
 
 
 def _ok(p: Payment) -> PaymentResultResponse:
@@ -391,6 +497,9 @@ def _to_sub(s: Subscription) -> SubscriptionResponse:
         startAt=s.start_at.isoformat() if s.start_at else None,
         endAt=s.end_at.isoformat() if s.end_at else None,
         createdAt=s.created_at.isoformat() if s.created_at else None,
+        userId=s.user_id,
+        userUsername=(s.user.username if s.user else None) or "",
+        userEmail=(s.user.email if s.user else None) or "",
     )
 
 
@@ -405,4 +514,6 @@ def _to_pay(p: Payment) -> PaymentResponse:
         cardPan=p.card_pan,
         paidAt=p.paid_at.isoformat() if p.paid_at else None,
         createdAt=p.created_at.isoformat() if p.created_at else None,
+        userUsername=(p.user.username if p.user else None) or "",
+        userEmail=(p.user.email if p.user else None) or "",
     )

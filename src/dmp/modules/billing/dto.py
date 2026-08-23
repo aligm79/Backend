@@ -90,6 +90,9 @@ class PaymentResponse(BaseModel):
     cardPan: str | None = None
     paidAt: Any = None
     createdAt: Any = None
+    # Admin views join the paying user.
+    userUsername: str | None = None
+    userEmail: str | None = None
 
 
 class SubscriptionResponse(BaseModel):
@@ -102,3 +105,18 @@ class SubscriptionResponse(BaseModel):
     startAt: Any = None
     endAt: Any = None
     createdAt: Any = None
+    # Admin views join the owning user.
+    userId: str | None = None
+    userUsername: str | None = None
+    userEmail: str | None = None
+
+
+class GrantSubscriptionRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    userId: str
+    planId: str
+
+
+class SubscriptionStatusUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    status: str

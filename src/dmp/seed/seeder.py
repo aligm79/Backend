@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import security
 from ..config import get_settings
+from ..db import utcnow
 from ..domain.enums import AdminRole
 from ..domain.models import (
     Admin,
@@ -36,8 +37,99 @@ async def seed_all(session: AsyncSession) -> None:
         await seed_plans(session)
         await seed_sample_universities(session)
         await import_university_data(session)
+        await seed_demo_subscriptions(session)
     except Exception:
         log.exception("[Seed] seeding failed — startup continues.")
+
+
+async def seed_demo_subscriptions(session: AsyncSession) -> None:
+    """Demo users + subscriptions + payments so the admin panel has data to show.
+    Idempotent: skipped entirely once the demo users exist."""
+    from datetime import timedelta
+
+    from .. import security
+    from ..domain.enums import PaymentStatus, SubscriptionStatus, UserStatus
+    from ..domain.models import Payment, Subscription, SubscriptionPlan, User
+
+    existing = (
+        await session.execute(select(User).where(User.username == "demo_alice"))
+    ).scalar_one_or_none()
+    if existing is not None:
+        return
+
+    plans = {
+        p.name_key: p
+        for p in (
+            await session.execute(select(SubscriptionPlan))
+        ).scalars().all()
+    }
+    monthly = plans.get("plan.monthly.name")
+    yearly = plans.get("plan.yearly.name")
+    if monthly is None:
+        log.warning("[Seed] No monthly plan found — skipping demo subscriptions.")
+        return
+
+    now = utcnow()
+
+    def _user(uname: str, first: str, last: str) -> User:
+        return User(
+            id=security.new_uuid_hex(),
+            username=uname,
+            email=f"{uname}@example.com",
+            password_hash=security.hash_password("Password123"),
+            first_name=first,
+            last_name=last,
+            email_verified=True,
+            status=UserStatus.Active,
+        )
+
+    alice = _user("demo_alice", "Alice", "Demo")
+    bob = _user("demo_bob", "Bob", "Demo")
+    carol = _user("demo_carol", "Carol", "Demo")
+    session.add_all([alice, bob, carol])
+
+    def _sub(user: User, plan: SubscriptionPlan, start_offset_days: int, status: SubscriptionStatus) -> Subscription:
+        start = now - timedelta(days=start_offset_days)
+        return Subscription(
+            id=security.new_uuid_hex(),
+            user_id=user.id,
+            plan_id=plan.id,
+            start_at=start,
+            end_at=start + timedelta(days=plan.duration_days),
+            status=status,
+        )
+
+    # alice: active monthly; bob: expired monthly; carol: active yearly (+ a pending payment).
+    subs = [
+        _sub(alice, monthly, 5, SubscriptionStatus.Active),
+        _sub(bob, monthly, 60, SubscriptionStatus.Expired),
+        _sub(carol, (yearly or monthly), 10, SubscriptionStatus.Active),
+    ]
+    session.add_all(subs)
+
+    def _pay(user: User, sub: Subscription, plan: SubscriptionPlan, status: PaymentStatus, offset_days: int) -> Payment:
+        return Payment(
+            id=security.new_uuid_hex(),
+            user_id=user.id,
+            subscription_id=sub.id,
+            plan_id=plan.id,
+            amount_toman=plan.price_toman,
+            status=status,
+            gateway="zarinpal" if status != PaymentStatus.Succeeded else "manual",
+            description=f"Demo: {plan.name_key} ({plan.duration_days} days)",
+            paid_at=(now - timedelta(days=offset_days)) if status == PaymentStatus.Succeeded else None,
+        )
+
+    session.add_all(
+        [
+            _pay(alice, subs[0], monthly, PaymentStatus.Succeeded, 5),
+            _pay(bob, subs[1], monthly, PaymentStatus.Succeeded, 60),
+            _pay(carol, subs[2], (yearly or monthly), PaymentStatus.Succeeded, 10),
+        ]
+    )
+
+    await session.commit()
+    log.info("[Seed] Seeded 3 demo users with subscriptions and payments.")
 
 
 async def import_university_data(session: AsyncSession) -> None:
