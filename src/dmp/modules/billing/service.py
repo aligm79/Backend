@@ -40,7 +40,10 @@ class BillingService:
         plan = SubscriptionPlan(
             id=new_uuid_hex(),
             name_key=req.nameKey,
+            name=req.name or req.nameKey,
             description_key=req.descriptionKey or "",
+            description=req.description or "",
+            currency=(req.currency or "IRR").upper(),
             price_toman=req.priceToman,
             duration_days=req.durationDays,
             is_active=req.isActive,
@@ -56,8 +59,14 @@ class BillingService:
         plan = await self._get_plan(session, id_)
         if req.nameKey is not None:
             plan.name_key = req.nameKey
+        if req.name is not None:
+            plan.name = req.name
         if req.descriptionKey is not None:
             plan.description_key = req.descriptionKey
+        if req.description is not None:
+            plan.description = req.description
+        if req.currency is not None:
+            plan.currency = req.currency.upper()
         if req.priceToman is not None:
             if req.priceToman < 0:
                 raise AppException.validation("Price must be non-negative")
@@ -419,6 +428,24 @@ class BillingService:
         ).scalar_one()
         return _to_sub(loaded)
 
+    async def admin_delete_subscription(self, session: AsyncSession, id_: str) -> None:
+        """Delete a subscription. Blocked when payments reference it (transaction
+        history must be preserved) — cancel instead in that case."""
+        sub = (
+            await session.execute(select(Subscription).where(Subscription.id == id_))
+        ).scalar_one_or_none()
+        if sub is None:
+            raise AppException.not_found("Subscription not found")
+        has_payments = (
+            await session.execute(select(Payment.id).where(Payment.subscription_id == id_).limit(1))
+        ).first()
+        if has_payments:
+            raise AppException.conflict(
+                "Cannot delete a subscription that has payments; cancel it instead"
+            )
+        await session.delete(sub)
+        await session.commit()
+
     # ── helpers ─────────────────────────────────────────────────────────────────
 
     async def _get_plan(self, session: AsyncSession, id_: str) -> SubscriptionPlan:
@@ -474,7 +501,10 @@ def _to_plan(p: SubscriptionPlan) -> PlanResponse:
     return PlanResponse(
         id=p.id,
         nameKey=p.name_key,
+        name=p.name or p.name_key,
         descriptionKey=p.description_key,
+        description=p.description or "",
+        currency=p.currency or "IRR",
         priceToman=p.price_toman,
         durationDays=p.duration_days,
         isActive=p.is_active,

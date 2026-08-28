@@ -122,6 +122,16 @@ async def update_subscription_status(
     return ok(sub.model_dump(exclude_none=True))
 
 
+@router_admin.delete("/subscriptions/{id}")
+async def delete_subscription(
+    id: str,
+    _admin: Admin = Depends(current_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    await _billing.admin_delete_subscription(session, id)
+    return ok()
+
+
 # ── Client ──────────────────────────────────────────────────────────────────────
 
 

@@ -12,7 +12,7 @@ from ...db import get_session
 from ...deps import current_admin, current_user_id
 from ...domain.enums import AdminRole
 from ...domain.models import Admin
-from ...envelope import ok
+from ...envelope import AppException, ok
 from . import service
 from .dto import (
     AdminCreateRequest,
@@ -76,6 +76,40 @@ async def update_admin(
 ):
     result = await service.admin_update(session, id, req)
     return ok(result.model_dump(exclude_none=True))
+
+
+@router_admin.delete("/admins/{id}")
+async def delete_admin(
+    id: str,
+    admin: Admin = Depends(current_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Delete an admin account. Super admins only; cannot delete yourself or
+    the last remaining super admin."""
+    if admin.role != AdminRole.SuperAdmin:
+        raise AppException.forbidden("Only super admins can delete admins")
+    if admin.id == id:
+        raise AppException.bad_request("Cannot delete your own account")
+    from ...deps import parse_uuid
+
+    parse_uuid(id)  # 400 on malformed ids
+
+    from sqlalchemy import func, select
+
+    target = (await session.execute(select(Admin).where(Admin.id == id))).scalar_one_or_none()
+    if target is None:
+        raise AppException.not_found("Admin not found")
+    if target.role == AdminRole.SuperAdmin:
+        supers = (
+            await session.execute(
+                select(func.count(Admin.id)).where(Admin.role == AdminRole.SuperAdmin, Admin.is_active.is_(True))
+            )
+        ).scalar_one()
+        if supers <= 1:
+            raise AppException.bad_request("Cannot delete the last super admin")
+    await session.delete(target)
+    await session.commit()
+    return ok()
 
 
 # ── Client ──────────────────────────────────────────────────────────────────────

@@ -203,36 +203,75 @@ async def seed_countries(session: AsyncSession) -> None:
     log.info("[Seed] Seeded %d countries.", len(rows))
 
 
+DEFAULT_PLANS = [
+    {
+        "name_key": "plan.monthly.name",
+        "description_key": "plan.monthly.desc",
+        "name": "Monthly",
+        "description": "Full access to every university profile for 30 days.",
+        "currency": "IRR",
+        "price": 1_500_000,  # Rials
+        "duration_days": 30,
+        "sort_order": 0,
+        "features": {"highlighted": False},
+    },
+    {
+        "name_key": "plan.yearly.name",
+        "description_key": "plan.yearly.desc",
+        "name": "Yearly",
+        "description": "Best value — a full year of access to every university profile.",
+        "currency": "IRR",
+        "price": 12_000_000,  # Rials
+        "duration_days": 365,
+        "sort_order": 1,
+        "features": {"highlighted": True},
+    },
+]
+
+
 async def seed_plans(session: AsyncSession) -> None:
-    any_plan = (await session.execute(select(SubscriptionPlan).limit(1))).scalar_one_or_none()
-    if any_plan:
-        return
-    session.add_all(
-        [
-            SubscriptionPlan(
-                id=security.new_uuid_hex(),
-                name_key="plan.monthly.name",
-                description_key="plan.monthly.desc",
-                price_toman=150000,
-                duration_days=30,
-                is_active=True,
-                sort_order=0,
-                features={"highlighted": False},
-            ),
-            SubscriptionPlan(
-                id=security.new_uuid_hex(),
-                name_key="plan.yearly.name",
-                description_key="plan.yearly.desc",
-                price_toman=1200000,
-                duration_days=365,
-                is_active=True,
-                sort_order=1,
-                features={"highlighted": True},
-            ),
-        ]
-    )
-    await session.commit()
-    log.info("[Seed] Seeded 2 default subscription plans.")
+    """Upsert the default plans: create missing ones and backfill the display
+    fields (name/description/currency) on existing rows so upgrades from older
+    databases get the new columns populated. Runs on every boot; idempotent."""
+    changed = 0
+    for spec in DEFAULT_PLANS:
+        plan = (
+            await session.execute(select(SubscriptionPlan).where(SubscriptionPlan.name_key == spec["name_key"]))
+        ).scalar_one_or_none()
+        if plan is None:
+            session.add(
+                SubscriptionPlan(
+                    id=security.new_uuid_hex(),
+                    name_key=spec["name_key"],
+                    description_key=spec["description_key"],
+                    name=spec["name"],
+                    description=spec["description"],
+                    currency=spec["currency"],
+                    price_toman=spec["price"],
+                    duration_days=spec["duration_days"],
+                    is_active=True,
+                    sort_order=spec["sort_order"],
+                    features=spec["features"],
+                )
+            )
+            changed += 1
+        else:
+            # Backfill display fields / currency only when empty (never clobber admin edits).
+            if not plan.name:
+                plan.name = spec["name"]
+                changed += 1
+            if not plan.description:
+                plan.description = spec["description"]
+                changed += 1
+            if not plan.currency:
+                # Row predates the Rials switch — set currency AND reprice to the
+                # Rials default (the old Toman value would read as a odd Rials amount).
+                plan.currency = spec["currency"]
+                plan.price_toman = spec["price"]
+                changed += 1
+    if changed:
+        await session.commit()
+        log.info("[Seed] Default subscription plans ensured (%d change/s).", changed)
 
 
 async def seed_sample_universities(session: AsyncSession) -> None:

@@ -24,7 +24,10 @@ def _parse_jsonb(v: Any) -> dict | None:
 class PlanCreateRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
     nameKey: str
+    name: str | None = None
     descriptionKey: str | None = None
+    description: str | None = None
+    currency: str | None = None  # defaults to IRR (Rials)
     priceToman: int
     durationDays: int
     isActive: bool = True
@@ -38,7 +41,10 @@ class PlanCreateRequest(BaseModel):
 class PlanUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
     nameKey: str | None = None
+    name: str | None = None
     descriptionKey: str | None = None
+    description: str | None = None
+    currency: str | None = None
     priceToman: int | None = None
     durationDays: int | None = None
     isActive: bool | None = None
@@ -52,7 +58,10 @@ class PlanUpdateRequest(BaseModel):
 class PlanResponse(BaseModel):
     id: str
     nameKey: str
+    name: str = ""
     descriptionKey: str | None = None
+    description: str = ""
+    currency: str = "IRR"
     priceToman: int
     durationDays: int
     isActive: bool

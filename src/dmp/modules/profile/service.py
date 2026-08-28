@@ -18,6 +18,7 @@ from .dto import ProfileResponse, SettingsResponse, UpdateProfileRequest, Update
 def _profile_response(u: User) -> ProfileResponse:
     return ProfileResponse(
         id=u.id,
+        username=u.username,
         email=u.email,
         phoneNumber=u.phone_number,
         firstName=u.first_name,

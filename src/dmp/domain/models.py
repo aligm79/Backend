@@ -140,6 +140,11 @@ class SubscriptionPlan(Base):
     id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True)
     name_key: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     description_key: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    # Direct display fields (no i18n indirection) + currency. Prices are stored
+    # as integers in the plan's `currency` — Rials (IRR) for now.
+    name: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    currency: Mapped[str] = mapped_column(String(8), nullable=False, default="IRR")
     price_toman: Mapped[int] = mapped_column(BigInteger, nullable=False)
     duration_days: Mapped[int] = mapped_column(Integer, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

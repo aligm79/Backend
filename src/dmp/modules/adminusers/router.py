@@ -121,3 +121,29 @@ async def update_user(
     await session.commit()
     await session.refresh(u)
     return ok(_to_response(u))
+
+
+@router.delete("/{id}")
+async def delete_user(
+    id: str,
+    _admin: Admin = Depends(current_admin),
+    session: AsyncSession = Depends(get_session),
+):
+    """Hard-delete a user and their dependent rows (payments, subscriptions,
+    applications cascade). Use suspend for reversible action."""
+    from sqlalchemy import delete as sa_delete
+
+    from ...deps import parse_uuid
+    from ...domain.models import Application, Payment, Subscription
+
+    parse_uuid(id)  # 400 on malformed ids
+    u = (await session.execute(select(User).where(User.id == id))).scalar_one_or_none()
+    if u is None:
+        raise AppException.not_found("User not found")
+
+    await session.execute(sa_delete(Payment).where(Payment.user_id == id))
+    await session.execute(sa_delete(Subscription).where(Subscription.user_id == id))
+    await session.execute(sa_delete(Application).where(Application.user_id == id))
+    await session.delete(u)
+    await session.commit()
+    return ok()

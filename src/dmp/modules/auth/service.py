@@ -63,8 +63,9 @@ def _normalize(email: str | None, phone: str | None) -> tuple[str | None, str | 
     return _normalize_identifier(email), _normalize_identifier(phone)
 
 
-def _admin_role_response(role: AdminRole) -> str:
-    return role.value  # "SuperAdmin" / "Admin" — matches AdminAuthService ToResponse (.Role.ToString())
+def _admin_role_response(role: AdminRole | str) -> str:
+    # "SuperAdmin" / "Admin" — matches the stored enum name (loaded rows may be str).
+    return role.value if hasattr(role, "value") else str(role)
 
 
 # ── Admin auth ──────────────────────────────────────────────────────────────────
