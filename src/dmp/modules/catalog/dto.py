@@ -99,6 +99,8 @@ class UniversityDetail(BaseModel):
     countryId: str | None = None
     countryName: str | None = None
     countryFlag: str | None = None
+    isPublished: bool = True
+    sortOrder: int = 0
 
 
 class UniversityUpsertRequest(BaseModel):

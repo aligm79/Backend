@@ -652,6 +652,8 @@ def _to_detail(u: University) -> UniversityDetail:
         qsWorldRank=u.qs_world_rank,
         campusLocation=u.campus_location,
         about=u.about,
+        isPublished=u.is_published,
+        sortOrder=u.sort_order,
         internationalStudentsPct=u.international_students_pct,
         facilities=u.facilities,
         scholarships=u.scholarships,

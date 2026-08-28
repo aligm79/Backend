@@ -88,6 +88,25 @@ def _normalize_dashes(name: str) -> str:
     return re.sub(r"[—–\-]", " ", name)
 
 
+_SMALL_WORDS = {"of", "and", "the", "at", "in", "for", "a", "an", "on", "de"}
+
+
+def _display_name(name: str) -> str:
+    """Title-case dump names ("university of tehran" → "University of Tehran")
+    while keeping acronyms (MIT, ETH) and already-cased names intact."""
+    words: list[str] = []
+    for i, w in enumerate(name.split()):
+        if w.isupper() and len(w) > 1:
+            words.append(w)  # acronym
+            continue
+        lw = w.lower()
+        if i != 0 and lw in _SMALL_WORDS:
+            words.append(lw)
+        else:
+            words.append(lw[0].upper() + lw[1:])
+    return " ".join(words)
+
+
 def map_dump_payload(json_content: dict, fallback_name: str | None) -> UniversityPayload | None:
     """Map one university_data row's JSON onto the canonical payload. Returns None
     when there is no usable name."""
@@ -98,7 +117,7 @@ def map_dump_payload(json_content: dict, fallback_name: str | None) -> Universit
         return None
 
     payload = UniversityPayload(
-        name=name,
+        name=_display_name(name),
         about=_pick_str(
             json_content,
             ("university_overview", "about_university", "qs"),
