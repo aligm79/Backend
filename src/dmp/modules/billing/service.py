@@ -466,15 +466,73 @@ class BillingService:
         return _to_sub(loaded)
 
     async def admin_update_subscription_status(
-        self, session: AsyncSession, id_: str, status: str
+        self,
+        session: AsyncSession,
+        id_: str,
+        status: str | None,
+        plan_id: str | None = None,
+        start_at: str | None = None,
+        end_at: str | None = None,
     ) -> SubscriptionResponse:
-        new_status = _parse_subscription_status(status)
+        from datetime import timedelta
+
         sub = (
             await session.execute(select(Subscription).where(Subscription.id == id_))
         ).scalar_one_or_none()
         if sub is None:
             raise AppException.not_found("Subscription not found")
-        sub.status = new_status
+
+        was_pending = sub.status == SubscriptionStatus.PendingPayment
+
+        if plan_id and plan_id != sub.plan_id:
+            sub.plan_id = (await self._get_plan(session, plan_id)).id
+
+        def _parse_dt(value: str):
+            from datetime import datetime, timezone
+
+            v = value.strip()
+            if not v:
+                return None
+            try:
+                dt = datetime.fromisoformat(v.replace("Z", "+00:00"))
+            except ValueError:
+                from datetime import date
+
+                dt = datetime.combine(date.fromisoformat(v[:10]), datetime.min.time())
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+
+        if start_at:
+            sub.start_at = _parse_dt(start_at)
+        if end_at:
+            sub.end_at = _parse_dt(end_at)
+
+        if status:
+            new_status = _parse_subscription_status(status)
+            # Accept flow: activating a pending subscription opens its window
+            # for the plan duration (unless explicit dates were given) and
+            # records the linked pending payment as Succeeded.
+            if new_status == SubscriptionStatus.Active and was_pending:
+                now = utcnow()
+                if not start_at:
+                    sub.start_at = now
+                if not end_at and sub.plan_id:
+                    plan = await self._get_plan(session, sub.plan_id)
+                    sub.end_at = (sub.start_at or now) + timedelta(days=plan.duration_days)
+                pay = (
+                    await session.execute(
+                        select(Payment).where(
+                            Payment.subscription_id == sub.id,
+                            Payment.status == PaymentStatus.Pending,
+                        )
+                    )
+                ).scalar_one_or_none()
+                if pay is not None:
+                    pay.status = PaymentStatus.Succeeded
+                    pay.paid_at = now
+            sub.status = new_status
+
         await session.commit()
         loaded = (
             await session.execute(

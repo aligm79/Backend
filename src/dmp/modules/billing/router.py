@@ -124,7 +124,9 @@ async def update_subscription_status(
     _admin: Admin = Depends(current_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    sub = await _billing.admin_update_subscription_status(session, id, req.status)
+    sub = await _billing.admin_update_subscription_status(
+        session, id, req.status, req.planId, req.startAt, req.endAt
+    )
     return ok(sub.model_dump(exclude_none=True))
 
 

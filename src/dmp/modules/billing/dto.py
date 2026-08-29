@@ -128,5 +128,11 @@ class GrantSubscriptionRequest(BaseModel):
 
 
 class SubscriptionStatusUpdateRequest(BaseModel):
+    """Edit a subscription: any subset of status/plan/window. Accepting a
+    pending subscription (status=active) also activates its window and marks
+    the linked pending payment as Succeeded."""
     model_config = ConfigDict(extra="ignore")
-    status: str
+    status: str | None = None
+    planId: str | None = None
+    startAt: str | None = None  # ISO date/datetime
+    endAt: str | None = None
