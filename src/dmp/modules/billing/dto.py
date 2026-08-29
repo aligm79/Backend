@@ -108,6 +108,7 @@ class SubscriptionResponse(BaseModel):
     id: str
     planId: str
     planNameKey: str = ""
+    planName: str = ""
     planPriceToman: int = 0
     planDurationDays: int = 0
     status: str

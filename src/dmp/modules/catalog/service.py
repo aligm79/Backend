@@ -182,6 +182,13 @@ class CatalogService:
 
     # ── Client (subscription-gated) ─────────────────────────────────────────────
 
+
+    async def _free_preview_ids(self, session: AsyncSession) -> set[str]:
+        """Ids of the first universities by (sort_order, name) — viewable without
+        a subscription (freemium preview; everything else stays gated)."""
+        stmt = select(University.id).order_by(University.sort_order, University.name).limit(3)
+        return {row for (row,) in (await session.execute(stmt)).all()}
+
     async def get_detail(
         self, session: AsyncSession, slug: str, user_id: str, has_subscription: bool
     ) -> dict:
@@ -201,7 +208,7 @@ class CatalogService:
             raise AppException.not_found("University not found")
         if not u.is_published and not has_subscription:
             raise AppException.not_found("University not found")
-        if not has_subscription:
+        if not has_subscription and u.id not in await self._free_preview_ids(session):
             raise AppException.forbidden("An active subscription is required to view full details")
         return _to_detail(u).model_dump(exclude_none=True)
 

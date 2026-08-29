@@ -521,6 +521,7 @@ def _to_sub(s: Subscription) -> SubscriptionResponse:
         id=s.id,
         planId=s.plan_id,
         planNameKey=plan.name_key if plan else "",
+        planName=(plan.name or "") if plan else "",
         planPriceToman=plan.price_toman if plan else 0,
         planDurationDays=plan.duration_days if plan else 0,
         status=_enum_name(s.status),
