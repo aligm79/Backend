@@ -211,6 +211,16 @@ async def user_login(session: AsyncSession, req: UserLoginRequest) -> TokenRespo
         else:
             username = identifier
 
+    # Admin-credential path FIRST: logging in with a staff username + password
+    # provisions/updates a linked app user and attaches an admin token, so ONE
+    # login on the main site gives the admin full panel access.
+    linked = await _try_admin_login_link(session, username or email, req.password)
+    if linked is not None:
+        admin_user, admin = linked
+        resp = _issue_user(admin_user)
+        resp.adminAccessToken = _issue_admin(admin).accessToken
+        return resp
+
     user: User | None = None
     if username is not None:
         user = (
@@ -225,18 +235,12 @@ async def user_login(session: AsyncSession, req: UserLoginRequest) -> TokenRespo
         if user.password_hash and verify_password(req.password, user.password_hash):
             return _issue_user(user)
 
-    # Admin-credential fallback: logging in with a staff username + password
-    # provisions/updates a linked app user, so admins can use the dashboard too.
-    admin_user = await _try_admin_login_link(session, username or email, req.password)
-    if admin_user is not None:
-        return _issue_user(admin_user)
-
     raise AppException.unauthorized("Invalid credentials")
 
 
 async def _try_admin_login_link(
     session: AsyncSession, identifier: str | None, password: str
-) -> User | None:
+) -> tuple[User, Admin] | None:
     """If the credentials match an admin account, get-or-create a linked user row
     (username = the admin's username, password kept in sync with the admin's)."""
     if not identifier or "@" in identifier:
@@ -268,7 +272,7 @@ async def _try_admin_login_link(
         # Keep the linked user's password in sync with the admin's.
         user.password_hash = admin.password_hash
     await session.commit()
-    return user
+    return user, admin
 
 
 async def send_otp(session: AsyncSession, req: OtpSendRequest) -> OtpSendResult:

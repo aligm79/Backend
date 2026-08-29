@@ -13,6 +13,9 @@ class TokenResponse(BaseModel):
     refreshToken: str
     refreshTokenExpiresAt: datetime
     accountType: str  # "user" | "admin"
+    # Present when the app login matched an admin account — lets the SPA
+    # establish the admin session from the same single login.
+    adminAccessToken: str | None = None
 
 
 # ── Admin ───────────────────────────────────────────────────────────────────────
