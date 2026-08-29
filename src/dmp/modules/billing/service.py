@@ -7,6 +7,8 @@ handle_callback verifies and activates the subscription (extending an existing o
 
 from __future__ import annotations
 
+import math
+
 import logging
 
 import httpx
@@ -31,6 +33,17 @@ from .dto import (
 
 log = logging.getLogger("dmp.billing")
 
+
+
+def _paged(items: list, total: int, page: int, limit: int) -> dict:
+    return {
+        "items": items,
+        "meta": {"total": total, "page": page, "limit": limit, "total_page": math.ceil(total / limit) if limit else 1},
+    }
+
+
+def _clamp_paging(page: int, limit: int) -> tuple[int, int]:
+    return max(1, page), 20 if limit <= 0 else min(limit, 200)
 
 class BillingService:
     # ── Plans (admin) ───────────────────────────────────────────────────────────
@@ -321,30 +334,74 @@ class BillingService:
             "recentPayments": recent_payments,
         }
 
-    async def admin_list_payments(self, session: AsyncSession) -> list[PaymentResponse]:
-        stmt = (
-            select(Payment)
-            .options(selectinload(Payment.user))
-            .order_by(Payment.created_at.desc())
-        )
-        rows = (await session.execute(stmt)).scalars().all()
-        return [_to_pay(p) for p in rows]
+    async def admin_list_payments(
+        self,
+        session: AsyncSession,
+        status: str | None = None,
+        search: str | None = None,
+        page: int = 1,
+        limit: int = 20,
+    ) -> dict:
+        p, lim = _clamp_paging(page, limit)
+        stmt = select(Payment).options(selectinload(Payment.user))
+        count_stmt = select(func.count()).select_from(Payment)
+        if status:
+            flt = Payment.status == _parse_payment_status(status)
+            stmt, count_stmt = stmt.where(flt), count_stmt.where(flt)
+        if search and search.strip():
+            like = f"%{search.strip().lower()}%"
+            # match user username/email/phone via join
+            stmt = stmt.join(User, Payment.user_id == User.id).where(
+                (func.lower(User.username).like(like))
+                | (func.lower(func.coalesce(User.email, "")).like(like))
+                | (func.coalesce(User.phone_number, "").like(like))
+                | (func.lower(func.coalesce(Payment.ref_id, "")).like(like))
+            )
+            count_stmt = count_stmt.join(User, Payment.user_id == User.id).where(
+                (func.lower(User.username).like(like))
+                | (func.lower(func.coalesce(User.email, "")).like(like))
+                | (func.coalesce(User.phone_number, "").like(like))
+                | (func.lower(func.coalesce(Payment.ref_id, "")).like(like))
+            )
+        total = (await session.execute(count_stmt)).scalar_one()
+        stmt = stmt.order_by(Payment.created_at.desc()).offset((p - 1) * lim).limit(lim)
+        rows = (await session.execute(stmt)).scalars().unique().all()
+        return _paged([_to_pay(x) for x in rows], total, p, lim)
 
     # ── Admin subscriptions ────────────────────────────────────────────────────
 
     async def admin_list_subscriptions(
-        self, session: AsyncSession, status: str | None, user_id: str | None
-    ) -> list[SubscriptionResponse]:
+        self,
+        session: AsyncSession,
+        status: str | None,
+        user_id: str | None,
+        search: str | None = None,
+        page: int = 1,
+        limit: int = 20,
+    ) -> dict:
+        p, lim = _clamp_paging(page, limit)
         stmt = select(Subscription).options(
             selectinload(Subscription.plan), selectinload(Subscription.user)
         )
+        count_stmt = select(func.count()).select_from(Subscription)
         if status:
-            stmt = stmt.where(Subscription.status == _parse_subscription_status(status))
+            flt = Subscription.status == _parse_subscription_status(status)
+            stmt, count_stmt = stmt.where(flt), count_stmt.where(flt)
         if user_id:
-            stmt = stmt.where(Subscription.user_id == user_id)
-        stmt = stmt.order_by(Subscription.created_at.desc())
-        rows = (await session.execute(stmt)).scalars().all()
-        return [_to_sub(s) for s in rows]
+            flt = Subscription.user_id == user_id
+            stmt, count_stmt = stmt.where(flt), count_stmt.where(flt)
+        if search and search.strip():
+            like = f"%{search.strip().lower()}%"
+            flt = (
+                (func.lower(User.username).like(like))
+                | (func.lower(func.coalesce(User.email, "")).like(like))
+            )
+            stmt = stmt.join(User, Subscription.user_id == User.id).where(flt)
+            count_stmt = count_stmt.join(User, Subscription.user_id == User.id).where(flt)
+        total = (await session.execute(count_stmt)).scalar_one()
+        stmt = stmt.order_by(Subscription.created_at.desc()).offset((p - 1) * lim).limit(lim)
+        rows = (await session.execute(stmt)).scalars().unique().all()
+        return _paged([_to_sub(x) for x in rows], total, p, lim)
 
     async def admin_grant_subscription(
         self, session: AsyncSession, user_id: str, plan_id: str
@@ -470,6 +527,14 @@ def _enum_name(value) -> str:
     if hasattr(value, "value"):
         return value.value
     return str(value)
+
+
+def _parse_payment_status(value: str) -> PaymentStatus:
+    v = (value or "").strip().lower().replace("_", "")
+    for st in PaymentStatus:
+        if st.value.lower().replace("_", "") == v:
+            return st
+    raise AppException.validation(f"Invalid payment status: {value}")
 
 
 def _parse_subscription_status(value: str) -> SubscriptionStatus:

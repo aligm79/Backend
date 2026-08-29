@@ -72,10 +72,15 @@ async def client_detail(
 
 @router_admin.get("/universities")
 async def admin_list(
+    search: str | None = None,
+    countryId: str | None = None,
+    published: bool | None = None,
+    page: int = 1,
+    limit: int = 20,
     _admin: Admin = Depends(current_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    return ok(await _catalog.admin_list(session))
+    return ok(await _catalog.admin_list(session, search, countryId, published, page, limit))
 
 
 @router_admin.get("/universities/{id}")

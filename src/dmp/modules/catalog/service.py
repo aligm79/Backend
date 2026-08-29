@@ -214,20 +214,43 @@ class CatalogService:
 
     # ── Admin CRUD ──────────────────────────────────────────────────────────────
 
-    async def admin_list(self, session: AsyncSession) -> list[dict]:
-        stmt = (
-            select(University)
-            .options(
-                selectinload(University.programs),
-                selectinload(University.admissions),
-                selectinload(University.student_staff),
-                selectinload(University.ranking),
-                selectinload(University.country),
-            )
-            .order_by(University.sort_order, University.name)
+    async def admin_list(
+        self,
+        session: AsyncSession,
+        search: str | None = None,
+        country_id: str | None = None,
+        published: bool | None = None,
+        page: int = 1,
+        limit: int = 20,
+    ) -> dict:
+        p = max(1, page)
+        lim = 20 if limit <= 0 else min(limit, 200)
+        stmt = select(University).options(
+            selectinload(University.programs),
+            selectinload(University.admissions),
+            selectinload(University.student_staff),
+            selectinload(University.ranking),
+            selectinload(University.country),
         )
+        count_stmt = select(func.count()).select_from(University)
+        if search and search.strip():
+            like = f"%{search.strip().lower()}%"
+            flt = (func.lower(University.name).like(like)) | (func.lower(University.slug).like(like))
+            stmt, count_stmt = stmt.where(flt), count_stmt.where(flt)
+        if country_id:
+            flt = University.country_id == country_id
+            stmt, count_stmt = stmt.where(flt), count_stmt.where(flt)
+        if published is not None:
+            flt = University.is_published.is_(published)
+            stmt, count_stmt = stmt.where(flt), count_stmt.where(flt)
+        total = (await session.execute(count_stmt)).scalar_one()
+        stmt = stmt.order_by(University.sort_order, University.name).offset((p - 1) * lim).limit(lim)
         unis = (await session.execute(stmt)).scalars().all()
-        return [_to_detail(u).model_dump(exclude_none=True) for u in unis]
+        items = [_to_detail(u).model_dump(exclude_none=True) for u in unis]
+        return {
+            "items": items,
+            "meta": {"total": total, "page": p, "limit": lim, "total_page": math.ceil(total / lim)},
+        }
 
     async def admin_get(self, session: AsyncSession, id_: str) -> dict:
         u = await self._load(session, id_)

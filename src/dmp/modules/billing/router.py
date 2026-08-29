@@ -79,10 +79,14 @@ async def delete_plan(
 
 @router_admin.get("/payments")
 async def list_payments(
+    status: str | None = None,
+    search: str | None = None,
+    page: int = 1,
+    limit: int = 20,
     _admin: Admin = Depends(current_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    return ok([p.model_dump(exclude_none=True) for p in await _billing.admin_list_payments(session)])
+    return ok(await _billing.admin_list_payments(session, status, search, page, limit))
 
 
 # ── Admin subscriptions (grant / list / status) ─────────────────────────────────
@@ -92,11 +96,13 @@ async def list_payments(
 async def list_subscriptions(
     status: str | None = None,
     userId: str | None = None,
+    search: str | None = None,
+    page: int = 1,
+    limit: int = 20,
     _admin: Admin = Depends(current_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    subs = await _billing.admin_list_subscriptions(session, status, userId)
-    return ok([s.model_dump(exclude_none=True) for s in subs])
+    return ok(await _billing.admin_list_subscriptions(session, status, userId, search, page, limit))
 
 
 @router_admin.post("/subscriptions")
