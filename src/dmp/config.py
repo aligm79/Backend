@@ -126,6 +126,14 @@ class Settings(BaseSettings):
 
     password_min_length: int = 8
 
+    # ── Redis (optional — cache / rate-limit store / queues when enabled) ─────
+    redis_url: str = ""  # e.g. redis://localhost:6379/0
+
+    # ── Kavenegar SMS (optional — OTP delivery via api.kavenegar.com) ─────────
+    kavenegar_api_key: str = ""
+    kavenegar_sender: str = ""  # dedicated sender line, optional
+    kavenegar_otp_template: str = ""  # approved template name, e.g. abroadpath-otp
+
     # ── Zarinpal (env: ZARINPAL__MERCHANT_ID / __MODE / __CALLBACK_URL) ─────────
     zarinpal_merchant_id: str = "00000000-0000-0000-0000-000000000000"
     zarinpal_mode: str = "sandbox"
